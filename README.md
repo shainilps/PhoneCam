@@ -12,8 +12,10 @@ the computer.</sub>
 
 ## Quick start
 
-1. Install the app: `./gradlew installDebug` (or copy `app/build/outputs/apk/debug/app-debug.apk`
-   to the phone). On Xiaomi phones, first turn off *Developer options → MIUI optimization*.
+1. Download `PhoneCam-v1.0.apk` from the
+   [latest release](https://github.com/shainilps/PhoneCam/releases/latest) on the phone and open
+   it. Android will ask you to allow installing apps from your browser or file manager. (Or
+   [build it yourself](#build-from-source).)
 2. Open PhoneCam and tap **Start streaming**. It shows a URL like `rtsp://192.168.1.23:8554/cam`.
 3. Preview it on your computer (same Wi-Fi). `ffplay` comes with ffmpeg and opens the stream
    in a window, which is a quick way to check that everything works before using it as a webcam:
@@ -71,6 +73,28 @@ with `-rtsp_transport tcp`.
 - **Stops with the screen off:** allow PhoneCam to run in the background (*Battery → No
   restrictions*).
 - **Logs:** `adb logcat -s PhoneCam/Encoder PhoneCam/Rtsp PhoneCam/Rtp PhoneCam/Service`
+
+## Build from source
+
+You need:
+- **JDK 17 or newer** to run Gradle, e.g. [Eclipse Temurin](https://adoptium.net/). If your JDK
+  isn't 17, Gradle downloads a JDK 17 for the build by itself.
+- **Android SDK**: easiest through [Android Studio](https://developer.android.com/studio), or the
+  [command-line tools](https://developer.android.com/tools/sdkmanager) alone. Accept the SDK
+  licenses once (`sdkmanager --licenses`) so Gradle can fetch the parts it needs (Android 36
+  platform and build tools).
+
+Point the build at your SDK with `ANDROID_HOME`, or a `local.properties` file containing
+`sdk.dir=/path/to/Android/Sdk`, then:
+
+```
+./gradlew assembleDebug    # APK in app/build/outputs/apk/debug/app-debug.apk
+./gradlew installDebug     # or build and install on a phone connected over USB
+```
+
+For `installDebug`, turn on *Developer options → USB debugging* on the phone. On Xiaomi phones,
+also turn off *Developer options → MIUI optimization*, or the install fails with
+`INSTALL_FAILED_USER_RESTRICTED`.
 
 ## Note
 
