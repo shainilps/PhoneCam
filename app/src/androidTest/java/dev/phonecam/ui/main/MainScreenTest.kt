@@ -3,24 +3,31 @@ package dev.phonecam.ui.main
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import org.junit.Before
+import dev.phonecam.encoder.VideoConfig
+import dev.phonecam.service.StreamStatus
+import dev.phonecam.service.StreamUrl
 import org.junit.Rule
 import org.junit.Test
 
-/** UI tests for [dev.phonecam.ui.main.MainScreen]. */
+/** UI tests for [MainScreenContent]. */
 class MainScreenTest {
 
-  @get:Rule val composeTestRule = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule
+    val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
-  @Before
-  fun setup() {
-    composeTestRule.setContent { MainScreen(FAKE_DATA) }
-  }
+    @Test
+    fun stopped_showsStartButton() {
+        composeTestRule.setContent { MainScreenContent(StreamStatus(), VideoConfig(), 1400, false, {}, {}, {}, {}) }
+        composeTestRule.onNodeWithText("Start streaming").assertExists()
+    }
 
-  @Test
-  fun firstItem_exists() {
-    FAKE_DATA.forEach { composeTestRule.onNodeWithText("Hello $it!").assertExists() }
-  }
+    @Test
+    fun streaming_showsUrlAndStopButton() {
+        val status = StreamStatus(running = true, config = VideoConfig(), urls = listOf(StreamUrl(URL, "wlan0")))
+        composeTestRule.setContent { MainScreenContent(status, VideoConfig(), 1400, false, {}, {}, {}, {}) }
+        composeTestRule.onNodeWithText(URL).assertExists()
+        composeTestRule.onNodeWithText("Stop").assertExists()
+    }
 }
 
-private val FAKE_DATA = listOf("Sample1", "Sample2", "Sample3")
+private const val URL = "rtsp://192.168.1.5:8554/cam"
