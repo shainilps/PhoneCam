@@ -5,17 +5,26 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,12 +36,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.phonecam.R
 import dev.phonecam.encoder.VideoConfig
 import dev.phonecam.service.StreamService
 import dev.phonecam.service.StreamState
@@ -92,53 +106,81 @@ internal fun MainScreenContent(
         modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("PhoneCam", style = MaterialTheme.typography.headlineMedium)
+        Header()
+        StatusCard(status, permissionDenied)
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val state = when {
-                    !status.running -> "Stopped"
-                    status.cameraOn -> "Streaming · ${status.clients} client(s)"
-                    else -> "Ready · camera starts when a client connects"
-                }
-                Text(state, style = MaterialTheme.typography.titleMedium)
-                status.config?.let {
-                    Text("${it.width}x${it.height} · ${it.fps} fps · ${it.bitrateKbps} kbps · " +
-                        "key frame every ${it.keyFrameIntervalSec} s · ${if (it.frontCamera) "front" else "back"} camera · " +
-                        "packets ≤ ${status.maxPacketSize} B" +
-                        if (it.exposureCompensation != 0) " · brightness +${it.exposureCompensation}" else "")
-                }
-                status.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (permissionDenied) Text("Camera permission is needed to stream.", color = MaterialTheme.colorScheme.error)
-                if (status.running) StreamUrls(status.urls)
-            }
+        if (status.running) {
+            OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Stop streaming") }
+        } else {
+            Button(onClick = onStart, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Start streaming") }
         }
 
         val enabled = !status.running
-        ChoiceRow("Resolution", RESOLUTIONS, config.width to config.height, enabled, { "${it.first}x${it.second}" }) {
-            onConfigChange(config.copy(width = it.first, height = it.second))
+        Section("Video", if (enabled) null else "Stop streaming to change settings") {
+            ChoiceRow("Resolution", RESOLUTIONS, config.width to config.height, enabled, { "${it.first}×${it.second}" }) {
+                onConfigChange(config.copy(width = it.first, height = it.second))
+            }
+            ChoiceRow("Frame rate", listOf(15, 24, 30), config.fps, enabled, { "$it fps" }) {
+                onConfigChange(config.copy(fps = it))
+            }
+            ChoiceRow("Bitrate", listOf(500, 1000, 2000, 4000), config.bitrateKbps, enabled, { "$it kbps" }) {
+                onConfigChange(config.copy(bitrateKbps = it))
+            }
+            ChoiceRow("Camera", listOf(false, true), config.frontCamera, enabled, { if (it) "Front" else "Back" }) {
+                onConfigChange(config.copy(frontCamera = it))
+            }
+            ChoiceRow("Brightness", listOf(0, 1, 2, 3), config.exposureCompensation, enabled, { if (it == 0) "Auto" else "+$it" }) {
+                onConfigChange(config.copy(exposureCompensation = it))
+            }
         }
-        ChoiceRow("Frame rate", listOf(15, 24, 30), config.fps, enabled, { "$it fps" }) {
-            onConfigChange(config.copy(fps = it))
+        Section("Network", null) {
+            ChoiceRow("Key frame every", listOf(0.5f, 1f, 2f), config.keyFrameIntervalSec, enabled, { "$it s" }) {
+                onConfigChange(config.copy(keyFrameIntervalSec = it))
+            }
+            ChoiceRow("Packet size", listOf(1400, 1200, 1000, 800), packetSize, enabled, { "$it B" }, onPacketSizeChange)
         }
-        ChoiceRow("Bitrate", listOf(500, 1000, 2000, 4000), config.bitrateKbps, enabled, { "$it kbps" }) {
-            onConfigChange(config.copy(bitrateKbps = it))
-        }
-        ChoiceRow("Key frame every", listOf(0.5f, 1f, 2f), config.keyFrameIntervalSec, enabled, { "$it s" }) {
-            onConfigChange(config.copy(keyFrameIntervalSec = it))
-        }
-        ChoiceRow("Packet size", listOf(1400, 1200, 1000, 800), packetSize, enabled, { "$it B" }, onPacketSizeChange)
-        ChoiceRow("Camera", listOf(false, true), config.frontCamera, enabled, { if (it) "Front" else "Back" }) {
-            onConfigChange(config.copy(frontCamera = it))
-        }
-        ChoiceRow("Brightness", listOf(0, 1, 2, 3), config.exposureCompensation, enabled, { if (it == 0) "Auto" else "+$it" }) {
-            onConfigChange(config.copy(exposureCompensation = it))
-        }
+    }
+}
 
-        if (status.running) {
-            OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
-        } else {
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start streaming") }
+@Composable
+private fun Header() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Image(painterResource(R.drawable.logo), contentDescription = null, modifier = Modifier.size(56.dp))
+        Column {
+            Text("PhoneCam", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Your phone as a wireless webcam", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun StatusCard(status: StreamStatus, permissionDenied: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val container: Color
+    val dot: Color
+    val title: String
+    val hint: String?
+    when {
+        !status.running -> { container = colors.surfaceVariant; dot = colors.outline; title = "Stopped"; hint = "Pick your settings, then start." }
+        status.cameraOn -> { container = colors.primaryContainer; dot = colors.tertiary; title = "Live · ${status.clients} watching"; hint = null }
+        else -> { container = colors.secondaryContainer; dot = colors.primary; title = "Ready"; hint = "The camera turns on when someone connects." }
+    }
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = container)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(10.dp).background(dot, CircleShape))
+                Spacer(Modifier.width(8.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium)
+            }
+            hint?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            status.config?.let {
+                Text("${it.width}×${it.height} · ${it.fps} fps · ${it.bitrateKbps} kbps · " +
+                    "${if (it.frontCamera) "front" else "back"} camera", style = MaterialTheme.typography.bodySmall)
+            }
+            status.error?.let { Text(it, color = colors.error) }
+            if (permissionDenied) Text("Camera permission is needed to stream.", color = colors.error)
+            if (status.running) StreamUrls(status.urls)
         }
     }
 }
@@ -150,14 +192,34 @@ private fun StreamUrls(urls: List<StreamUrl>) {
         return
     }
     SelectionContainer {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             urls.forEach {
-                Text(it.url, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyLarge)
-                Text(it.network, style = MaterialTheme.typography.bodySmall)
+                Column {
+                    Text(networkName(it.network), style = MaterialTheme.typography.labelMedium)
+                    Text(it.url, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyLarge)
+                }
             }
-            Text("Test: ffplay -fflags nobuffer -flags low_delay -rtsp_transport udp ${urls.first().url}",
+            Text("Preview on a computer: ffplay -fflags nobuffer -max_delay 0 -rtsp_transport udp ${urls.first().url}",
                 fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+private fun networkName(iface: String): String = when {
+    iface.startsWith("wlan0") -> "Wi-Fi"
+    iface.startsWith("rndis") || iface.startsWith("usb") -> "USB tethering"
+    iface.startsWith("ap") || iface.startsWith("swlan") || iface.startsWith("wlan") -> "Hotspot"
+    else -> iface
+}
+
+@Composable
+private fun Section(title: String, note: String?, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        content()
     }
 }
 

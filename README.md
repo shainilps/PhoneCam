@@ -1,3 +1,5 @@
+<img src="art/logo.png" alt="PhoneCam logo" width="120" align="right">
+
 # PhoneCam
 
 **Use your Android phone as a wireless webcam that doesn't freeze.**
@@ -12,7 +14,7 @@ the computer.</sub>
 
 ## Quick start
 
-1. Download `PhoneCam-v1.0.apk` from the
+1. Download `PhoneCam-v000.apk` from the
    [latest release](https://github.com/shainilps/PhoneCam/releases/latest) on the phone and open
    it. Android will ask you to allow installing apps from your browser or file manager. (Or
    [build it yourself](#build-from-source).)
