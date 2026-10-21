@@ -20,6 +20,9 @@ interface H264Source {
     val parameterSets: Pair<ByteArray, ByteArray>?
     val frameRate: Int
     fun requestKeyFrame()
+
+    /** A client is about to play (DESCRIBE/PLAY): start capturing if not already running. */
+    fun onClientInterested()
 }
 
 /**
@@ -105,6 +108,9 @@ class RtspServer(
             try {
                 socket.tcpNoDelay = true
                 socket.trafficClass = TRAFFIC_CLASS_VIDEO
+                // Clients send keep-alives (or RTCP over TCP) well within the advertised 60 s
+                // session timeout; silence beyond that means the client is gone.
+                socket.soTimeout = READ_TIMEOUT_MS
                 while (!closed) {
                     val request = readRequest() ?: break
                     Log.i(TAG, "[$client] -> $request ${request.headers["transport"] ?: ""}")
@@ -143,6 +149,7 @@ class RtspServer(
                 respond(req, "404 Not Found")
                 return
             }
+            source.onClientInterested()
             // A client can connect while the encoder is still starting; wait for SPS/PPS.
             var params = source.parameterSets
             var waited = 0
@@ -227,6 +234,7 @@ class RtspServer(
                 "Range" to "npt=0.000-",
                 "RTP-Info" to "url=$base;seq=${s.nextSequence}")
             if (!playing.contains(s)) playing.add(s)
+            source.onClientInterested()
             source.requestKeyFrame() // so the new client gets a picture right away
             onClientsChanged(playing.size)
             Log.i(TAG, "[$client] playing (${playing.size} client(s))")
@@ -322,6 +330,7 @@ class RtspServer(
         const val PATH = "/cam"
         const val TRACK = "track0"
         const val TRAFFIC_CLASS_VIDEO = 0x88 // DSCP 34 (AF41)
+        const val READ_TIMEOUT_MS = 75_000
 
         fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 

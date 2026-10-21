@@ -15,6 +15,8 @@ data class StreamStatus(
     val maxPacketSize: Int = 0,
     val urls: List<StreamUrl> = emptyList(),
     val clients: Int = 0,
+    /** The camera only runs while a client is watching. */
+    val cameraOn: Boolean = false,
     val error: String? = null,
 )
 

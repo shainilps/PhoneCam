@@ -9,4 +9,9 @@ data class VideoConfig(
     /** Shorter heals lost packets sooner but costs bitrate (a key frame is a full picture). */
     val keyFrameIntervalSec: Float = 0.5f,
     val frontCamera: Boolean = false,
+    /**
+     * Brightness in the camera's exposure compensation steps (often 1/3 EV). The frame rate is
+     * fixed, so in dim light this raises sensor gain: brighter but grainier.
+     */
+    val exposureCompensation: Int = 0,
 )

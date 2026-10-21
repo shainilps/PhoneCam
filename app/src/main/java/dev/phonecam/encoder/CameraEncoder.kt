@@ -62,6 +62,12 @@ class CameraEncoder(
     private var lastPtsUs = 0L
     private var maxGapUs = 0L
 
+    // Some encoders round a fractional key frame interval to whole seconds; we then ask for
+    // key frames ourselves so lost packets still heal on time.
+    private val keyFrameIntervalUs = (config.keyFrameIntervalSec * 1_000_000).toLong()
+    private var lastKeyFramePtsUs = 0L
+    private var keyFrameRequested = false
+
     fun start() {
         handler.post {
             try {
@@ -220,6 +226,19 @@ class CameraEncoder(
         if (nals.isEmpty()) return
         sink.onFrame(nals, info.presentationTimeUs, key)
         updateStats(info, key)
+        enforceKeyFrameInterval(info.presentationTimeUs, key)
+    }
+
+    private fun enforceKeyFrameInterval(ptsUs: Long, key: Boolean) {
+        if (key) {
+            lastKeyFramePtsUs = ptsUs
+            keyFrameRequested = false
+        } else if (!keyFrameRequested && lastKeyFramePtsUs != 0L &&
+            ptsUs - lastKeyFramePtsUs > keyFrameIntervalUs + keyFrameIntervalUs / 4
+        ) {
+            keyFrameRequested = true
+            requestKeyFrame()
+        }
     }
 
     private fun updateStats(info: MediaCodec.BufferInfo, key: Boolean) {
@@ -262,13 +281,16 @@ class CameraEncoder(
             Log.w(TAG, "Camera $id may not support ${config.width}x${config.height} for video; sizes: ${sizes.joinToString()}")
         }
         val fpsRange = pickFpsRange(chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty())
-        Log.i(TAG, "Opening camera $id (front=${config.frontCamera}), fps range $fpsRange")
+        val evRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+        val exposure = evRange?.clamp(config.exposureCompensation) ?: 0
+        Log.i(TAG, "Opening camera $id (front=${config.frontCamera}), fps range $fpsRange, " +
+            "exposure $exposure (range $evRange, step ${chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)})")
 
         manager.openCamera(id, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 if (stopped) { device.close(); return }
                 camera = device
-                startSession(device, fpsRange)
+                startSession(device, fpsRange, exposure)
             }
 
             override fun onDisconnected(device: CameraDevice) {
@@ -294,7 +316,7 @@ class CameraEncoder(
     }
 
     @Suppress("DEPRECATION") // the List<Surface> overload is the one available on API 28
-    private fun startSession(device: CameraDevice, fpsRange: Range<Int>?) {
+    private fun startSession(device: CameraDevice, fpsRange: Range<Int>?, exposure: Int) {
         val surface = inputSurface ?: return
         device.createCaptureSession(listOf(surface), object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(s: CameraCaptureSession) {
@@ -305,6 +327,7 @@ class CameraEncoder(
                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                     if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposure)
                 }.build()
                 s.setRepeatingRequest(request, null, handler)
                 Log.i(TAG, "Camera streaming into encoder")

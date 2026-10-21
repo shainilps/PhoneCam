@@ -96,12 +96,17 @@ internal fun MainScreenContent(
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val state = if (status.running) "Streaming · ${status.clients} client(s)" else "Stopped"
+                val state = when {
+                    !status.running -> "Stopped"
+                    status.cameraOn -> "Streaming · ${status.clients} client(s)"
+                    else -> "Ready · camera starts when a client connects"
+                }
                 Text(state, style = MaterialTheme.typography.titleMedium)
                 status.config?.let {
                     Text("${it.width}x${it.height} · ${it.fps} fps · ${it.bitrateKbps} kbps · " +
                         "key frame every ${it.keyFrameIntervalSec} s · ${if (it.frontCamera) "front" else "back"} camera · " +
-                        "packets ≤ ${status.maxPacketSize} B")
+                        "packets ≤ ${status.maxPacketSize} B" +
+                        if (it.exposureCompensation != 0) " · brightness +${it.exposureCompensation}" else "")
                 }
                 status.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (permissionDenied) Text("Camera permission is needed to stream.", color = MaterialTheme.colorScheme.error)
@@ -125,6 +130,9 @@ internal fun MainScreenContent(
         ChoiceRow("Packet size", listOf(1400, 1200, 1000, 800), packetSize, enabled, { "$it B" }, onPacketSizeChange)
         ChoiceRow("Camera", listOf(false, true), config.frontCamera, enabled, { if (it) "Front" else "Back" }) {
             onConfigChange(config.copy(frontCamera = it))
+        }
+        ChoiceRow("Brightness", listOf(0, 1, 2, 3), config.exposureCompensation, enabled, { if (it == 0) "Auto" else "+$it" }) {
+            onConfigChange(config.copy(exposureCompensation = it))
         }
 
         if (status.running) {
@@ -180,8 +188,12 @@ private fun <T> ChoiceRow(
 private val RESOLUTIONS = listOf(640 to 480, 960 to 540, 1280 to 720)
 
 private val VideoConfigSaver = listSaver<VideoConfig, Any>(
-    save = { listOf(it.width, it.height, it.fps, it.bitrateKbps, it.keyFrameIntervalSec, it.frontCamera) },
-    restore = { VideoConfig(it[0] as Int, it[1] as Int, it[2] as Int, it[3] as Int, it[4] as Float, it[5] as Boolean) },
+    save = {
+        listOf(it.width, it.height, it.fps, it.bitrateKbps, it.keyFrameIntervalSec, it.frontCamera, it.exposureCompensation)
+    },
+    restore = {
+        VideoConfig(it[0] as Int, it[1] as Int, it[2] as Int, it[3] as Int, it[4] as Float, it[5] as Boolean, it[6] as Int)
+    },
 )
 
 @Preview(showBackground = true)
@@ -199,6 +211,7 @@ fun MainScreenStreamingPreview() {
         MainScreenContent(
             StreamStatus(
                 running = true,
+                cameraOn = true,
                 config = VideoConfig(),
                 maxPacketSize = 1400,
                 urls = listOf(StreamUrl("rtsp://10.40.117.130:8554/cam", "wlan0")),

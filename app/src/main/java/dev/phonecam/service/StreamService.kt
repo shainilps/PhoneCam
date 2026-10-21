@@ -38,8 +38,11 @@ import java.nio.ByteBuffer
  */
 class StreamService : Service(), EncodedVideoSink, H264Source {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var encoder: CameraEncoder? = null
+    @Volatile private var encoder: CameraEncoder? = null
     @Volatile private var server: RtspServer? = null
+    private var config = VideoConfig()
+    @Volatile private var clients = 0
+    private val idleCheck = Runnable { if (clients == 0) stopCamera() }
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var urls: List<StreamUrl> = emptyList()
@@ -64,14 +67,19 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
 
     private fun startStreaming(config: VideoConfig, maxPacketSize: Int) {
         Log.i(TAG, "Starting: $config, max packet $maxPacketSize B")
+        this.config = config
         frameRate = config.fps
         urls = findUrls()
         startForegroundWithNotification(clients = 0)
-        acquireLocks()
+        acquireWakeLock()
 
-        val rtsp = RtspServer(PORT, maxPacketSize, this) { clients ->
-            StreamState.update { it.copy(clients = clients) }
-            mainHandler.post { updateNotification(clients) }
+        val rtsp = RtspServer(PORT, maxPacketSize, this) { count ->
+            clients = count
+            StreamState.update { it.copy(clients = count) }
+            mainHandler.post {
+                updateNotification(count)
+                if (count == 0) scheduleIdleCheck()
+            }
         }
         try {
             rtsp.start()
@@ -82,14 +90,13 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
             return
         }
         server = rtsp
-        encoder = CameraEncoder(this, config, this).also { it.start() }
         StreamState.update { StreamStatus(running = true, config = config, maxPacketSize = maxPacketSize, urls = urls) }
         urls.forEach { Log.i(TAG, "Stream URL: ${it.url} (${it.network})") }
     }
 
     override fun onDestroy() {
-        encoder?.stop()
-        encoder = null
+        mainHandler.removeCallbacks(idleCheck)
+        stopCamera()
         server?.stop()
         server = null
         releaseLocks()
@@ -119,9 +126,43 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
         encoder?.requestKeyFrame()
     }
 
+    override fun onClientInterested() {
+        mainHandler.post { startCamera() }
+    }
+
+    // ---- Camera on demand (main thread) ----
+
+    /** Starts capture when a client wants video; the camera stays off while nobody watches. */
+    private fun startCamera() {
+        if (server == null) return
+        if (encoder == null) {
+            Log.i(TAG, "Client wants video: starting camera")
+            acquireWifiLock()
+            encoder = CameraEncoder(this, config, this).also { it.start() }
+            StreamState.update { it.copy(cameraOn = true) }
+        }
+        if (clients == 0) scheduleIdleCheck() // e.g. a client that described but never played
+    }
+
+    private fun stopCamera() {
+        val e = encoder ?: return
+        Log.i(TAG, "No clients: stopping camera")
+        e.stop()
+        encoder = null
+        runCatching { wifiLock?.release() }
+        wifiLock = null
+        StreamState.update { it.copy(cameraOn = false) }
+    }
+
+    private fun scheduleIdleCheck() {
+        mainHandler.removeCallbacks(idleCheck)
+        mainHandler.postDelayed(idleCheck, IDLE_STOP_MS)
+    }
+
     // ---- Locks ----
 
-    private fun acquireLocks() {
+    private fun acquireWifiLock() {
+        if (wifiLock != null) return
         val wifi = applicationContext.getSystemService(WifiManager::class.java)
         // Keeps the Wi-Fi radio out of power save, which otherwise delays packets by up to
         // ~100 ms (seen on the Redmi 6 as a ping sawtooth).
@@ -135,6 +176,10 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
             setReferenceCounted(false)
             acquire()
         }
+    }
+
+    /** Keeps the CPU awake so the server keeps answering with the screen off. */
+    private fun acquireWakeLock() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PhoneCam:stream").apply {
                 setReferenceCounted(false)
@@ -198,6 +243,7 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
     companion object {
         private const val TAG = "PhoneCam/Service"
         const val PORT = 8554
+        private const val IDLE_STOP_MS = 10_000L
         private const val CHANNEL_ID = "stream"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "dev.phonecam.STOP"
@@ -212,6 +258,7 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
                 .putExtra("bitrateKbps", config.bitrateKbps)
                 .putExtra("keyFrameIntervalSec", config.keyFrameIntervalSec)
                 .putExtra("frontCamera", config.frontCamera)
+                .putExtra("exposureCompensation", config.exposureCompensation)
                 .putExtra(EXTRA_PACKET_SIZE, maxPacketSize)
             StreamState.update { it.copy(error = null) }
             ContextCompat.startForegroundService(context, intent)
@@ -230,6 +277,7 @@ class StreamService : Service(), EncodedVideoSink, H264Source {
                 bitrateKbps = getIntExtra("bitrateKbps", d.bitrateKbps),
                 keyFrameIntervalSec = getFloatExtra("keyFrameIntervalSec", d.keyFrameIntervalSec),
                 frontCamera = getBooleanExtra("frontCamera", d.frontCamera),
+                exposureCompensation = getIntExtra("exposureCompensation", d.exposureCompensation),
             )
         }
     }
